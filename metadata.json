@@ -1,0 +1,5 @@
+{
+  "name": "MuseWave Studio",
+  "description": "A complete AI music generation platform using Gemini Music Generation as the synthesis engine.",
+  "requestFramePermissions": []
+}
