@@ -18,17 +18,17 @@ export default function HomePage() {
           Generate production-ready audio in fixed 30-second segments. Stitch segments into ONE continuous master audio file with seamless tonal, tempo, and rhythmic continuity.
         </p>
         
-        <div className="pt-8 flex items-center justify-center gap-6">
+        <div className="pt-8 flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6">
           <Link
             to="/create"
-            className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-900/20 transition-all hover:scale-105 flex items-center gap-3 text-lg"
+            className="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-900/20 transition-all hover:scale-105 flex items-center justify-center gap-3 text-lg"
           >
             <Music size={24} />
             Create Music
           </Link>
           <Link
             to="/dashboard"
-            className="px-8 py-4 bg-[#2c2c2e] hover:bg-[#3a3a3c] text-white font-bold rounded-lg transition-all hover:scale-105 flex items-center gap-3 text-lg"
+            className="w-full sm:w-auto px-8 py-4 bg-[#2c2c2e] hover:bg-[#3a3a3c] text-white font-bold rounded-lg transition-all hover:scale-105 flex items-center justify-center gap-3 text-lg"
           >
             <LayoutDashboard size={24} />
             Dashboard

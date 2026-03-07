@@ -225,17 +225,17 @@ export default function CreateMusicPage() {
     : formData.albumName.trim() !== '' && albumSongs.every(s => s.title.trim() !== '' && s.prompt.trim() !== '');
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Studio Console</h1>
-          <p className="text-slate-400">Configure parameters for deterministic generation.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Studio Console</h1>
+          <p className="text-sm sm:text-base text-slate-400">Configure parameters for deterministic generation.</p>
         </div>
         
-        <div className="flex items-center bg-[#1c1c1e] rounded-lg border border-[#2c2c2e] p-1">
+        <div className="flex items-center bg-[#1c1c1e] rounded-lg border border-[#2c2c2e] p-1 w-full sm:w-auto">
           <button
             onClick={() => setMode('single')}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               mode === 'single' ? 'bg-[#2c2c2e] text-white shadow-sm' : 'text-slate-500 hover:text-white'
             }`}
           >
@@ -243,7 +243,7 @@ export default function CreateMusicPage() {
           </button>
           <button
             onClick={() => setMode('album')}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               mode === 'album' ? 'bg-[#2c2c2e] text-white shadow-sm' : 'text-slate-500 hover:text-white'
             }`}
           >

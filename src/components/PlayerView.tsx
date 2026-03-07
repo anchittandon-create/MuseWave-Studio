@@ -33,30 +33,30 @@ export default function PlayerView() {
   // Mini Player View
   if (!isExpanded) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 bg-[#1c1c1e] border-t border-[#2c2c2e] p-4 flex items-center justify-between z-50 shadow-2xl transform transition-transform duration-300">
-        <div className="flex items-center gap-4 flex-1 cursor-pointer" onClick={() => setIsExpanded(true)}>
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-600 rounded-md flex items-center justify-center shadow-lg">
-            <span className="text-white font-bold text-lg">{currentTrack.trackName.charAt(0)}</span>
+      <div className="fixed bottom-0 left-0 right-0 bg-[#1c1c1e] border-t border-[#2c2c2e] p-3 sm:p-4 flex items-center justify-between z-50 shadow-2xl transform transition-transform duration-300">
+        <div className="flex items-center gap-3 sm:gap-4 flex-1 cursor-pointer overflow-hidden" onClick={() => setIsExpanded(true)}>
+          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-600 to-purple-600 rounded-md flex items-center justify-center shadow-lg shrink-0">
+            <span className="text-white font-bold text-base sm:text-lg">{currentTrack.trackName.charAt(0)}</span>
           </div>
-          <div>
-            <h3 className="text-white font-medium text-sm">{currentTrack.trackName}</h3>
-            <p className="text-slate-400 text-xs truncate max-w-[200px]">
+          <div className="min-w-0">
+            <h3 className="text-white font-medium text-sm truncate">{currentTrack.trackName}</h3>
+            <p className="text-slate-400 text-xs truncate">
               {Array.isArray(currentTrack.genres) ? currentTrack.genres.join(', ') : ''}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-6 flex-1 justify-center">
-          <button onClick={togglePlay} className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform">
+        <div className="flex items-center gap-4 sm:gap-6 justify-center px-2 sm:px-4">
+          <button onClick={togglePlay} className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shrink-0">
             {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-1" />}
           </button>
         </div>
 
-        <div className="flex items-center gap-4 flex-1 justify-end">
-          <button onClick={() => setIsExpanded(true)} className="text-slate-400 hover:text-white transition-colors">
+        <div className="flex items-center gap-2 sm:gap-4 flex-1 justify-end shrink-0">
+          <button onClick={() => setIsExpanded(true)} className="hidden sm:block text-slate-400 hover:text-white transition-colors">
             <Maximize2 size={20} />
           </button>
-          <button onClick={() => setIsPlayerOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+          <button onClick={() => setIsPlayerOpen(false)} className="text-slate-400 hover:text-white transition-colors p-2">
             <X size={20} />
           </button>
         </div>
@@ -77,14 +77,14 @@ export default function PlayerView() {
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-2xl mx-auto w-full">
-        <div className="w-64 h-64 md:w-96 md:h-96 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-2xl shadow-blue-900/20 flex items-center justify-center mb-12 transform transition-transform hover:scale-105 duration-500">
-           <span className="text-white font-bold text-6xl md:text-8xl opacity-50">{currentTrack.trackName.charAt(0)}</span>
+      <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 max-w-2xl mx-auto w-full">
+        <div className="w-48 h-48 sm:w-64 sm:h-64 md:w-96 md:h-96 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-2xl shadow-blue-900/20 flex items-center justify-center mb-8 sm:mb-12 transform transition-transform hover:scale-105 duration-500">
+           <span className="text-white font-bold text-5xl sm:text-6xl md:text-8xl opacity-50">{currentTrack.trackName.charAt(0)}</span>
         </div>
 
-        <div className="w-full text-center mb-8">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-2">{currentTrack.trackName}</h2>
-          <p className="text-blue-400 text-lg">
+        <div className="w-full text-center mb-6 sm:mb-8">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2">{currentTrack.trackName}</h2>
+          <p className="text-blue-400 text-base sm:text-lg">
             {Array.isArray(currentTrack.genres) ? currentTrack.genres.join(', ') : ''}
           </p>
         </div>
@@ -114,18 +114,18 @@ export default function PlayerView() {
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-8">
+        <div className="flex items-center justify-center gap-6 sm:gap-8">
           <button className="text-slate-400 hover:text-white transition-colors">
-            <SkipBack size={32} />
+            <SkipBack size={24} className="sm:w-8 sm:h-8" />
           </button>
           <button 
             onClick={togglePlay}
-            className="w-20 h-20 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shadow-xl shadow-white/10"
+            className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shadow-xl shadow-white/10"
           >
-            {isPlaying ? <Pause size={32} /> : <Play size={32} className="ml-2" />}
+            {isPlaying ? <Pause size={24} className="sm:w-8 sm:h-8" /> : <Play size={24} className="ml-1 sm:ml-2 sm:w-8 sm:h-8" />}
           </button>
           <button className="text-slate-400 hover:text-white transition-colors">
-            <SkipForward size={32} />
+            <SkipForward size={24} className="sm:w-8 sm:h-8" />
           </button>
         </div>
       </div>
