@@ -24,6 +24,25 @@ export default function CreateMusicPage() {
   });
 
   const [suggestingField, setSuggestingField] = useState<string | null>(null);
+  const [numSongs, setNumSongs] = useState(3);
+  const [albumSongs, setAlbumSongs] = useState(
+    Array.from({ length: 3 }, (_, i) => ({ title: `Track ${i + 1}`, prompt: '' }))
+  );
+
+  const handleNumSongsChange = (val: number) => {
+    setNumSongs(val);
+    setAlbumSongs(prev => {
+      const newSongs = [...prev];
+      if (val > prev.length) {
+        for (let i = prev.length; i < val; i++) {
+          newSongs.push({ title: `Track ${i + 1}`, prompt: '' });
+        }
+      } else {
+        newSongs.splice(val);
+      }
+      return newSongs;
+    });
+  };
 
   const handleSuggest = async (fieldName: string) => {
     setSuggestingField(fieldName);
@@ -46,13 +65,31 @@ export default function CreateMusicPage() {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      // Create track
-      const res = await fetch('/api/tracks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const { id } = await res.json();
+      const trackIds = [];
+      
+      if (mode === 'single') {
+        const res = await fetch('/api/tracks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
+        const { id } = await res.json();
+        trackIds.push({ id, trackName: formData.trackName, prompt: formData.prompt });
+      } else {
+        for (const song of albumSongs) {
+          const res = await fetch('/api/tracks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...formData,
+              trackName: song.title,
+              prompt: song.prompt
+            })
+          });
+          const { id } = await res.json();
+          trackIds.push({ id, trackName: song.title, prompt: song.prompt });
+        }
+      }
       
       navigate('/dashboard');
 
@@ -60,47 +97,53 @@ export default function CreateMusicPage() {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const durationRequested = formData.durationRequested;
       const segmentsNeeded = Math.ceil(durationRequested / 30);
-      let durationGenerated = 0;
 
-      for (let currentSegment = 0; currentSegment < segmentsNeeded; currentSegment++) {
-        const segmentPrompt = `Generate segment ${currentSegment + 1} of ${segmentsNeeded} for track ${formData.trackName}. Style: ${formData.genres.join(', ')}. Prompt: ${formData.prompt}. Maintain tempo, key, rhythm continuity.`;
-        
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash-preview-tts",
-          contents: [{ parts: [{ text: segmentPrompt }] }],
-          config: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+      for (const track of trackIds) {
+        let durationGenerated = 0;
+        for (let currentSegment = 0; currentSegment < segmentsNeeded; currentSegment++) {
+          const segmentPrompt = `Generate segment ${currentSegment + 1} of ${segmentsNeeded} for track ${track.trackName}. Style: ${formData.genres.join(', ')}. Prompt: ${track.prompt}. Maintain tempo, key, rhythm continuity.`;
+          
+          const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text: segmentPrompt }] }],
+            config: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+              }
             }
-          }
-        });
-        
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) throw new Error('No audio generated');
+          });
+          
+          const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (!base64Audio) throw new Error('No audio generated');
 
-        durationGenerated += 30;
-        const progressPercentage = Math.min((durationGenerated / durationRequested) * 100, 99);
+          durationGenerated += 30;
+          const progressPercentage = Math.min((durationGenerated / durationRequested) * 100, 99);
 
-        await fetch(`/api/tracks/${id}/segment`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            base64Audio,
-            currentSegment,
-            durationGenerated,
-            progressPercentage
-          })
-        });
+          await fetch(`/api/tracks/${track.id}/segment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              base64Audio,
+              currentSegment,
+              durationGenerated,
+              progressPercentage
+            })
+          });
+        }
+
+        await fetch(`/api/tracks/${track.id}/finalize`, { method: 'POST' });
       }
-
-      await fetch(`/api/tracks/${id}/finalize`, { method: 'POST' });
 
     } catch (err) {
       console.error(err);
       setIsGenerating(false);
     }
   };
+
+  const isFormValid = mode === 'single' 
+    ? formData.prompt.trim() !== '' 
+    : albumSongs.every(s => s.prompt.trim() !== '');
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -132,42 +175,100 @@ export default function CreateMusicPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-6">
-          <div className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl p-6">
-            <div className="flex justify-between items-center mb-4">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Track Title</label>
-              <button 
-                onClick={() => handleSuggest('trackName')}
-                className="text-blue-500 hover:text-blue-400 transition-colors"
-                title="AI Suggest"
-              >
-                {suggestingField === 'trackName' ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-              </button>
-            </div>
-            <input
-              type="text"
-              value={formData.trackName}
-              onChange={e => setFormData({...formData, trackName: e.target.value})}
-              className="w-full bg-[#121214] border border-[#2c2c2e] rounded-lg p-3 text-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+          {mode === 'single' ? (
+            <>
+              <div className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Track Title</label>
+                  <button 
+                    onClick={() => handleSuggest('trackName')}
+                    className="text-blue-500 hover:text-blue-400 transition-colors"
+                    title="AI Suggest"
+                  >
+                    {suggestingField === 'trackName' ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={formData.trackName}
+                  onChange={e => setFormData({...formData, trackName: e.target.value})}
+                  className="w-full bg-[#121214] border border-[#2c2c2e] rounded-lg p-3 text-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
 
-          <div className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl p-6">
-            <div className="flex justify-between items-center mb-4">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Music Prompt</label>
-              <button 
-                onClick={() => handleSuggest('prompt')}
-                className="text-blue-500 hover:text-blue-400 transition-colors"
-              >
-                {suggestingField === 'prompt' ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-              </button>
-            </div>
-            <textarea
-              value={formData.prompt}
-              onChange={e => setFormData({...formData, prompt: e.target.value})}
-              placeholder="Describe the atmosphere, instruments, and progression..."
-              className="w-full bg-[#121214] border border-[#2c2c2e] rounded-lg p-3 text-white h-32 resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+              <div className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Music Prompt</label>
+                  <button 
+                    onClick={() => handleSuggest('prompt')}
+                    className="text-blue-500 hover:text-blue-400 transition-colors"
+                  >
+                    {suggestingField === 'prompt' ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                  </button>
+                </div>
+                <textarea
+                  value={formData.prompt}
+                  onChange={e => setFormData({...formData, prompt: e.target.value})}
+                  placeholder="Describe the atmosphere, instruments, and progression..."
+                  className="w-full bg-[#121214] border border-[#2c2c2e] rounded-lg p-3 text-white h-32 resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Number of Songs</label>
+                  <span className="text-blue-400 font-mono text-xl font-bold">{numSongs}</span>
+                </div>
+                <input
+                  type="range"
+                  min="2"
+                  max="10"
+                  step="1"
+                  value={numSongs}
+                  onChange={e => handleNumSongsChange(parseInt(e.target.value))}
+                  className="w-full h-2 bg-[#121214] rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <div className="flex justify-between text-xs text-slate-500 mt-2 font-mono">
+                  <span>2</span>
+                  <span>10</span>
+                </div>
+              </div>
+
+              {albumSongs.map((song, index) => (
+                <div key={index} className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Song {index + 1} Title</label>
+                  </div>
+                  <input
+                    type="text"
+                    value={song.title}
+                    onChange={e => {
+                      const newSongs = [...albumSongs];
+                      newSongs[index].title = e.target.value;
+                      setAlbumSongs(newSongs);
+                    }}
+                    className="w-full bg-[#121214] border border-[#2c2c2e] rounded-lg p-3 text-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 mb-4"
+                  />
+
+                  <div className="flex justify-between items-center mb-4">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Song {index + 1} Prompt</label>
+                  </div>
+                  <textarea
+                    value={song.prompt}
+                    onChange={e => {
+                      const newSongs = [...albumSongs];
+                      newSongs[index].prompt = e.target.value;
+                      setAlbumSongs(newSongs);
+                    }}
+                    placeholder={`Describe the atmosphere for song ${index + 1}...`}
+                    className="w-full bg-[#121214] border border-[#2c2c2e] rounded-lg p-3 text-white h-24 resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              ))}
+            </>
+          )}
 
           <div className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl p-6">
             <div className="flex justify-between items-center mb-4">
@@ -252,7 +353,7 @@ export default function CreateMusicPage() {
 
           <button
             onClick={handleGenerate}
-            disabled={isGenerating || !formData.prompt}
+            disabled={isGenerating || !isFormValid}
             className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 text-lg flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-[1.02]"
           >
             {isGenerating ? (
