@@ -154,9 +154,9 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   
-                  <div className="flex gap-2">
-                    {track.genres.map(g => (
-                      <span key={g} className="px-2 py-1 rounded bg-[#121214] border border-[#2c2c2e] text-xs font-medium text-slate-400 uppercase tracking-wider">
+                  <div className="flex gap-2 flex-wrap">
+                    {Array.isArray(track.genres) && track.genres.map((g, i) => (
+                      <span key={`${g}-${i}`} className="px-2 py-1 rounded bg-[#121214] border border-[#2c2c2e] text-xs font-medium text-slate-400 uppercase tracking-wider">
                         {g}
                       </span>
                     ))}
