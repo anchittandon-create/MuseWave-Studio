@@ -194,9 +194,9 @@ app.post('/api/tracks/:id/finalize', async (req, res) => {
     // Final Firestore Update
     db.prepare(`
       UPDATE tracks 
-      SET status = 'completed', progressPercentage = 100, audioMasterUrl = ?
+      SET status = 'completed', progressPercentage = 100, audioMasterUrl = ?, videoUrl = ?
       WHERE id = ?
-    `).run(`/audio/${id}_master.mp3`, id);
+    `).run(`/audio/${id}_master.mp3`, track.videoUrl || null, id);
     
     res.json({ success: true });
   } catch (error) {

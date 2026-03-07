@@ -1,73 +1,42 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Play, Pause, Download, Loader2, Music, Waves } from 'lucide-react';
-
-interface Track {
-  id: string;
-  trackName: string;
-  prompt: string;
-  genres: string[];
-  durationRequested: number;
-  durationGenerated: number;
-  segmentsGenerated: number;
-  audioMasterUrl: string | null;
-  status: string;
-  progressPercentage: number;
-  createdAt: string;
-}
+import { usePlayer, Track } from '../context/PlayerContext';
 
 function AudioPlayer({ track }: { track: Track }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const { currentTrack, isPlaying, currentTime, playTrack, togglePlay } = usePlayer();
+  
+  const isThisTrackPlaying = currentTrack?.id === track.id;
+  const displayTime = isThisTrackPlaying ? currentTime : 0;
+  const displayIsPlaying = isThisTrackPlaying && isPlaying;
 
-  useEffect(() => {
-    if (audioRef.current && track.audioMasterUrl) {
-      // The audio element will automatically handle the growing file if the server supports range requests properly.
-      // We don't need to reload the src, just let it play.
-    }
-  }, [track.audioMasterUrl]);
-
-  const togglePlay = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
-
-  const handleTimeUpdate = () => {
-    if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
-      // If duration is Infinity or NaN (due to streaming), use the generated duration
-      const d = audioRef.current.duration;
-      setDuration(isFinite(d) ? d : track.durationGenerated);
+  const handlePlayClick = () => {
+    if (isThisTrackPlaying) {
+      togglePlay();
+    } else {
+      playTrack(track);
     }
   };
 
   return (
     <div className="flex items-center gap-4 bg-[#121214] p-3 rounded-lg border border-[#2c2c2e]">
       <button
-        onClick={togglePlay}
+        onClick={handlePlayClick}
         disabled={!track.audioMasterUrl}
         className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-1" />}
+        {displayIsPlaying ? <Pause size={20} /> : <Play size={20} className="ml-1" />}
       </button>
       
       <div className="flex-1">
         <div className="flex justify-between text-xs text-slate-400 mb-1 font-mono">
-          <span>{Math.floor(currentTime / 60)}:{(currentTime % 60).toFixed(0).padStart(2, '0')}</span>
+          <span>{Math.floor(displayTime / 60)}:{(displayTime % 60).toFixed(0).padStart(2, '0')}</span>
           <span>{Math.floor(track.durationRequested / 60)}:{(track.durationRequested % 60).toString().padStart(2, '0')}</span>
         </div>
         <div className="h-1.5 bg-[#2c2c2e] rounded-full overflow-hidden relative">
           {/* Progress bar */}
           <div 
             className="absolute top-0 left-0 h-full bg-blue-500 transition-all duration-300"
-            style={{ width: `${(currentTime / track.durationRequested) * 100}%` }}
+            style={{ width: `${(displayTime / track.durationRequested) * 100}%` }}
           />
           {/* Generation buffer bar */}
           <div 
@@ -76,16 +45,6 @@ function AudioPlayer({ track }: { track: Track }) {
           />
         </div>
       </div>
-
-      {track.audioMasterUrl && (
-        <audio
-          ref={audioRef}
-          src={track.audioMasterUrl}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={() => setIsPlaying(false)}
-          preload="auto"
-        />
-      )}
     </div>
   );
 }
@@ -191,19 +150,53 @@ export default function DashboardPage() {
 
               <div className="flex flex-col justify-end gap-3 lg:w-48 shrink-0 border-t lg:border-t-0 lg:border-l border-[#2c2c2e] pt-4 lg:pt-0 lg:pl-6">
                 <button 
-                  disabled={track.status !== 'completed'}
+                  disabled={track.status !== 'completed' || !track.audioMasterUrl}
+                  onClick={() => {
+                    if (track.audioMasterUrl) {
+                      const a = document.createElement('a');
+                      a.href = track.audioMasterUrl;
+                      a.download = `${track.trackName}.wav`;
+                      a.click();
+                    }
+                  }}
                   className="w-full py-2.5 bg-white text-[#121214] font-bold rounded-lg hover:bg-slate-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download size={18} />
                   Export WAV
                 </button>
                 <button 
-                  disabled={track.status !== 'completed'}
+                  disabled={track.status !== 'completed' || !track.audioMasterUrl}
+                  onClick={() => {
+                    if (track.audioMasterUrl) {
+                      const mp3Url = track.audioMasterUrl.replace('.wav', '.mp3');
+                      const a = document.createElement('a');
+                      a.href = mp3Url;
+                      a.download = `${track.trackName}.mp3`;
+                      a.click();
+                    }
+                  }}
                   className="w-full py-2.5 bg-[#121214] border border-[#2c2c2e] text-slate-300 font-bold rounded-lg hover:text-white hover:border-slate-500 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Music size={18} />
                   Export MP3
                 </button>
+                {track.videoUrl && (
+                  <button 
+                    disabled={track.status !== 'completed'}
+                    onClick={() => {
+                      if (track.videoUrl) {
+                        const a = document.createElement('a');
+                        a.href = track.videoUrl;
+                        a.download = `${track.trackName}.mp4`;
+                        a.click();
+                      }
+                    }}
+                    className="w-full py-2.5 bg-[#121214] border border-[#2c2c2e] text-slate-300 font-bold rounded-lg hover:text-white hover:border-slate-500 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Download size={18} />
+                    Export MP4
+                  </button>
+                )}
               </div>
             </div>
           </div>

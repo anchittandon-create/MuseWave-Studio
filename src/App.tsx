@@ -3,6 +3,8 @@ import { Home, Music, LayoutDashboard, Settings, Library } from 'lucide-react';
 import HomePage from './pages/HomePage';
 import CreateMusicPage from './pages/CreateMusicPage';
 import DashboardPage from './pages/DashboardPage';
+import { PlayerProvider } from './context/PlayerContext';
+import PlayerView from './components/PlayerView';
 
 function Sidebar() {
   const location = useLocation();
@@ -55,17 +57,20 @@ function Sidebar() {
 
 export default function App() {
   return (
-    <Router>
-      <div className="flex h-screen bg-[#121214] text-slate-300 font-sans overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/create" element={<CreateMusicPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-          </Routes>
-        </main>
-      </div>
-    </Router>
+    <PlayerProvider>
+      <Router>
+        <div className="flex h-screen bg-[#121214] text-slate-300 font-sans overflow-hidden">
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto relative pb-20">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/create" element={<CreateMusicPage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+            </Routes>
+          </main>
+          <PlayerView />
+        </div>
+      </Router>
+    </PlayerProvider>
   );
 }
