@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Wand2, Music, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 
 const SuggestButton = ({ currentValue, onSuggest, isSuggesting }: { currentValue: any, onSuggest: (action: 'create'|'enhance') => void, isSuggesting: boolean }) => {
   const hasValue = Array.isArray(currentValue) ? currentValue.length > 0 : !!currentValue;
@@ -184,9 +184,9 @@ export default function CreateMusicPage() {
           
           const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: segmentPrompt }] }],
+            contents: segmentPrompt,
             config: {
-              responseModalities: ["AUDIO"],
+              responseModalities: [Modality.AUDIO],
               speechConfig: {
                 voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
               }
