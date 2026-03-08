@@ -8,31 +8,30 @@ import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import { v4 as uuidv4 } from "uuid";
 import { createServer as createViteServer } from "vite";
 import "dotenv/config";
+import type { IncomingMessage, ServerResponse } from "http";
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 const app = express();
 
 app.use(cors());
-
-app.use(express.json({ limit: "50mb" }) as any)
-app.use(express.urlencoded({ extended: true, limit: "50mb" }) as any)
+app.use(express.json({ limit: "50mb" }) as any);
+app.use(express.urlencoded({ extended: true, limit: "50mb" }) as any);
 
 const storageDir = path.join(process.cwd(), "storage");
 const audioDir = path.join(storageDir, "audio");
 const tempDir = path.join(storageDir, "tempSegments");
 
 [storageDir, audioDir, tempDir].forEach((dir) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-/* ----------------------- AUDIO STREAM WITH RANGE SUPPORT ----------------------- */
+
+
+/* ---------------- AUDIO STREAM ---------------- */
 
 app.get("/audio/:file", (req, res) => {
-  const file = req.params.file;
-  const filePath = path.join(audioDir, file);
+  const filePath = path.join(audioDir, req.params.file);
 
   if (!fs.existsSync(filePath)) {
     res.status(404).end();
@@ -40,38 +39,41 @@ app.get("/audio/:file", (req, res) => {
   }
 
   const stat = fs.statSync(filePath);
-  const fileSize = stat.size;
   const range = req.headers.range;
 
-  if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-    const chunkSize = end - start + 1;
-    const stream = fs.createReadStream(filePath, { start, end });
-
-    res.writeHead(206, {
-      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": chunkSize,
-      "Content-Type": file.endsWith(".mp3") ? "audio/mpeg" : "audio/wav",
-      "Cache-Control": "no-cache",
-    });
-
-    stream.pipe(res);
-  } else {
+  if (!range) {
     res.writeHead(200, {
-      "Content-Length": fileSize,
-      "Content-Type": file.endsWith(".mp3") ? "audio/mpeg" : "audio/wav",
-      "Cache-Control": "no-cache",
+      "Content-Length": stat.size,
+      "Content-Type": req.params.file.endsWith(".mp3")
+        ? "audio/mpeg"
+        : "audio/wav",
     });
 
     fs.createReadStream(filePath).pipe(res);
+    return;
   }
+
+  const parts = range.replace(/bytes=/, "").split("-");
+  const start = parseInt(parts[0]);
+  const end = parts[1] ? parseInt(parts[1]) : stat.size - 1;
+
+  const stream = fs.createReadStream(filePath, { start, end });
+
+  res.writeHead(206, {
+    "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+    "Accept-Ranges": "bytes",
+    "Content-Length": end - start + 1,
+    "Content-Type": req.params.file.endsWith(".mp3")
+      ? "audio/mpeg"
+      : "audio/wav",
+  });
+
+  stream.pipe(res);
 });
 
-/* -------------------------------- CREATE TRACK -------------------------------- */
+
+
+/* ---------------- CREATE TRACK ---------------- */
 
 app.post("/api/tracks", (req, res) => {
   const { trackName, prompt, genres, durationRequested } = req.body;
@@ -84,13 +86,12 @@ app.post("/api/tracks", (req, res) => {
     VALUES (?, ?, ?, ?, ?, 0, 0, 'generating', 0)
   `).run(id, trackName, prompt, JSON.stringify(genres), durationRequested);
 
-  const masterPath = path.join(audioDir, `${id}_master.wav`);
-  fs.writeFileSync(masterPath, Buffer.alloc(0));
-
   res.json({ id });
 });
 
-/* -------------------------------- GET TRACKS -------------------------------- */
+
+
+/* ---------------- GET TRACKS ---------------- */
 
 app.get("/api/tracks", (req, res) => {
   const tracks = db.prepare("SELECT * FROM tracks ORDER BY createdAt DESC").all();
@@ -103,54 +104,38 @@ app.get("/api/tracks", (req, res) => {
   );
 });
 
-/* -------------------------------- GET TRACK -------------------------------- */
 
-app.get("/api/tracks/:id", (req, res) => {
-  const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(req.params.id) as any;
 
-  if (!track) {
-    res.status(404).json({ error: "Not found" });
-    return;
-  }
-
-  res.json({
-    ...track,
-    genres: JSON.parse(track.genres),
-  });
-});
-
-/* -------------------------------- PROCESS SEGMENT -------------------------------- */
+/* ---------------- PROCESS SEGMENT ---------------- */
 
 app.post("/api/tracks/:id/segment", async (req, res) => {
   const { id } = req.params;
   const { base64Audio, currentSegment, durationGenerated, progressPercentage } = req.body;
 
-  const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(id) as any;
+  const track = db.prepare("SELECT * FROM tracks WHERE id=?").get(id) as any;
   if (!track) {
-    res.status(404).json({ error: "Not found" });
+    res.status(404).json({ error: "Track not found" });
     return;
   }
 
   const trackTempDir = path.join(tempDir, id);
-  if (!fs.existsSync(trackTempDir)) {
-    fs.mkdirSync(trackTempDir, { recursive: true });
-  }
+  if (!fs.existsSync(trackTempDir)) fs.mkdirSync(trackTempDir, { recursive: true });
 
-  const masterWavPath = path.join(audioDir, `${id}_master.wav`);
+  const segmentPath = path.join(trackTempDir, `segment_${currentSegment}.wav`);
+  const masterPath = path.join(audioDir, `${id}_master.wav`);
 
   try {
-    const segmentBuffer = Buffer.from(base64Audio, "base64");
-    const segmentPath = path.join(trackTempDir, `segment_${currentSegment}.wav`);
-    fs.writeFileSync(segmentPath, segmentBuffer);
+    const buffer = Buffer.from(base64Audio, "base64");
+    fs.writeFileSync(segmentPath, buffer);
 
     if (currentSegment === 0) {
-      fs.copyFileSync(segmentPath, masterWavPath);
+      fs.copyFileSync(segmentPath, masterPath);
     } else {
-      const tempMaster = path.join(trackTempDir, `temp_master_${currentSegment}.wav`);
+      const tempMaster = path.join(trackTempDir, `temp_master.wav`);
 
       await new Promise<void>((resolve, reject) => {
         ffmpeg()
-          .input(masterWavPath)
+          .input(masterPath)
           .input(segmentPath)
           .complexFilter(["[0:a][1:a]acrossfade=d=0.1:c1=tri:c2=tri[a]"])
           .map("[a]")
@@ -159,96 +144,83 @@ app.post("/api/tracks/:id/segment", async (req, res) => {
           .on("error", reject);
       });
 
-      fs.copyFileSync(tempMaster, masterWavPath);
+      fs.copyFileSync(tempMaster, masterPath);
     }
 
     db.prepare(`
       UPDATE tracks 
-      SET durationGenerated = ?, segmentsGenerated = ?, progressPercentage = ?, audioMasterUrl = ?
-      WHERE id = ?
-    `).run(durationGenerated, currentSegment + 1, progressPercentage, `/audio/${id}_master.wav`, id);
+      SET durationGenerated=?, segmentsGenerated=?, progressPercentage=?, audioMasterUrl=?
+      WHERE id=?
+    `).run(
+      durationGenerated,
+      currentSegment + 1,
+      progressPercentage,
+      `/audio/${id}_master.wav`,
+      id
+    );
 
     res.json({ success: true });
-  } catch (error) {
-    console.error("Segment processing error:", error);
 
-    db.prepare(`UPDATE tracks SET status = 'error' WHERE id = ?`).run(id);
-
-    res.status(500).json({ error: "Processing failed" });
+  } catch (err) {
+    console.error(err);
+    db.prepare(`UPDATE tracks SET status='error' WHERE id=?`).run(id);
+    res.status(500).json({ error: "segment processing failed" });
   }
 });
 
-/* -------------------------------- FINALIZE TRACK -------------------------------- */
+
+
+/* ---------------- FINALIZE TRACK ---------------- */
 
 app.post("/api/tracks/:id/finalize", async (req, res) => {
   const { id } = req.params;
 
-  const track = db.prepare("SELECT * FROM tracks WHERE id = ?").get(id) as any;
-
+  const track = db.prepare("SELECT * FROM tracks WHERE id=?").get(id) as any;
   if (!track) {
-    res.status(404).json({ error: "Not found" });
+    res.status(404).json({ error: "Track not found" });
     return;
   }
 
-  const trackTempDir = path.join(tempDir, id);
-  const masterWavPath = path.join(audioDir, `${id}_master.wav`);
-  const masterMp3Path = path.join(audioDir, `${id}_master.mp3`);
-
-  const durationRequested = track.durationRequested;
+  const masterWav = path.join(audioDir, `${id}_master.wav`);
+  const masterMp3 = path.join(audioDir, `${id}_master.mp3`);
 
   try {
-    const finalMasterWav = path.join(trackTempDir, "final_master.wav");
-
     await new Promise<void>((resolve, reject) => {
-      ffmpeg(masterWavPath)
-        .setDuration(durationRequested)
-        .audioFilters([
-          "loudnorm",
-          "alimiter=limit=-1dB",
-          "afade=t=in:ss=0:d=1",
-          `afade=t=out:st=${durationRequested - 2}:d=2`,
-        ])
-        .save(finalMasterWav)
-        .on("end", () => resolve())
-        .on("error", reject);
-    });
-
-    fs.copyFileSync(finalMasterWav, masterWavPath);
-
-    await new Promise<void>((resolve, reject) => {
-      ffmpeg(masterWavPath)
+      ffmpeg(masterWav)
+        .audioFilters(["loudnorm"])
         .toFormat("mp3")
-        .save(masterMp3Path)
+        .save(masterMp3)
         .on("end", () => resolve())
         .on("error", reject);
     });
 
     db.prepare(`
-      UPDATE tracks 
-      SET status = 'completed', progressPercentage = 100, audioMasterUrl = ?, videoUrl = ?
-      WHERE id = ?
-    `).run(`/audio/${id}_master.mp3`, track.videoUrl || null, id);
+      UPDATE tracks
+      SET status='completed', progressPercentage=100, audioMasterUrl=?
+      WHERE id=?
+    `).run(`/audio/${id}_master.mp3`, id);
 
     res.json({ success: true });
-  } catch (error) {
-    console.error("Finalization error:", error);
 
-    db.prepare(`UPDATE tracks SET status = 'error' WHERE id = ?`).run(id);
-
-    res.status(500).json({ error: "Finalization failed" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "finalize failed" });
   }
 });
 
-/* -------------------------------- SERVER START -------------------------------- */
 
-import type { IncomingMessage, ServerResponse } from "http";
+
+/* ---------------- SERVER START ---------------- */
 
 async function startServer() {
+
   if (process.env.NODE_ENV !== "production") {
+
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
+      appType: "spa"
     });
+
     app.use((req, res, next) => {
       vite.middlewares(
         req as unknown as IncomingMessage,
@@ -256,12 +228,13 @@ async function startServer() {
         next
       );
     });
+
   }
 
   const PORT = 3000;
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log("Server running on port", PORT);
   });
 }
 

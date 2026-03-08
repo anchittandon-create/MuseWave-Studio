@@ -95,7 +95,7 @@ export default function CreateMusicPage() {
       }
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-2.0-flash',
         contents: prompt
       });
       if (response.text) {
@@ -183,7 +183,7 @@ export default function CreateMusicPage() {
           const segmentPrompt = `Generate segment ${currentSegment + 1} of ${segmentsNeeded} for track ${track.trackName}. Style: ${formData.genres.join(', ')}. Prompt: ${track.prompt}. Maintain tempo, key, rhythm continuity.`;
           
           const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
+            model: "gemini-2.0-flash-exp",
             contents: [{ parts: [{ text: segmentPrompt }] }],
             config: {
               responseModalities: ["AUDIO"],
