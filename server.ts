@@ -7,26 +7,91 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { v4 as uuidv4 } from 'uuid';
 import { createServer as createViteServer } from 'vite';
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
 import 'dotenv/config';
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
+app.use(cookieParser());
 
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-production';
 const storageDir = path.join(process.cwd(), 'storage');
-const audioDir = path.join(storageDir, 'audio');
-const tempDir = path.join(storageDir, 'tempSegments');
 
-[storageDir, audioDir, tempDir].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+// Helper to get user storage paths
+const getUserStoragePaths = (userId: string, trackId: string) => {
+  const userDir = path.join(storageDir, 'users', userId);
+  const trackDir = path.join(userDir, 'tracks', trackId);
+  const segmentsDir = path.join(trackDir, 'segments');
+  const finalDir = path.join(trackDir, 'final');
+  
+  [userDir, trackDir, segmentsDir, finalDir].forEach(dir => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  });
+  
+  return { segmentsDir, finalDir };
+};
+
+// Auth Middleware
+const requireAuth = (req: any, res: any, next: any) => {
+  const token = req.cookies.token;
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// Auth Routes
+app.post('/api/auth/login', (req, res) => {
+  const { name, mobileNumber } = req.body;
+  if (!name || !mobileNumber) return res.status(400).json({ error: 'Name and mobile number required' });
+  
+  // In a real app, send OTP here. For now, we simulate OTP sent.
+  res.json({ success: true, message: 'OTP sent (use 123456 to verify)' });
+});
+
+app.post('/api/auth/verify', (req, res) => {
+  const { name, mobileNumber, otp } = req.body;
+  
+  if (otp !== '123456') return res.status(400).json({ error: 'Invalid OTP' });
+  
+  let user = db.prepare('SELECT * FROM users WHERE mobileNumber = ?').get(mobileNumber) as any;
+  
+  if (!user) {
+    const id = uuidv4();
+    db.prepare('INSERT INTO users (id, name, mobileNumber) VALUES (?, ?, ?)').run(id, name, mobileNumber);
+    user = { id, name, mobileNumber };
+  }
+  
+  const token = jwt.sign({ id: user.id, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
+  res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+  res.json({ success: true, user });
+});
+
+app.get('/api/auth/me', requireAuth, (req: any, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ user });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('token');
+  res.json({ success: true });
 });
 
 // Serve audio files with Range support
-app.get('/audio/:file', (req, res) => {
-  const file = req.params.file;
-  const filePath = path.join(audioDir, file);
+app.get('/audio/:userId/:trackId/:file', (req, res) => {
+  const { userId, trackId, file } = req.params;
+  const { finalDir } = getUserStoragePaths(userId, trackId);
+  const filePath = path.join(finalDir, file);
   
   if (!fs.existsSync(filePath)) {
     return res.status(404).end();
@@ -47,7 +112,7 @@ app.get('/audio/:file', (req, res) => {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
       'Content-Length': chunksize,
-      'Content-Type': file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav',
+      'Content-Type': file.endsWith('.mp3') ? 'audio/mpeg' : file.endsWith('.mp4') ? 'video/mp4' : 'audio/wav',
       'Cache-Control': 'no-cache'
     };
     res.writeHead(206, head);
@@ -55,7 +120,7 @@ app.get('/audio/:file', (req, res) => {
   } else {
     const head = {
       'Content-Length': fileSize,
-      'Content-Type': file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav',
+      'Content-Type': file.endsWith('.mp3') ? 'audio/mpeg' : file.endsWith('.mp4') ? 'video/mp4' : 'audio/wav',
       'Cache-Control': 'no-cache'
     };
     res.writeHead(200, head);
@@ -64,56 +129,57 @@ app.get('/audio/:file', (req, res) => {
 });
 
 // Create Track
-app.post('/api/tracks', (req, res) => {
+app.post('/api/tracks', requireAuth, (req: any, res) => {
   const { trackName, prompt, genres, durationRequested } = req.body;
   const id = uuidv4();
+  const userId = req.user.id;
   
   const stmt = db.prepare(`
-    INSERT INTO tracks (id, trackName, prompt, genres, durationRequested, durationGenerated, segmentsGenerated, status, progressPercentage)
-    VALUES (?, ?, ?, ?, ?, 0, 0, 'generating', 0)
+    INSERT INTO tracks (id, userId, trackName, prompt, genres, durationRequested, durationGenerated, segmentsGenerated, status, progressPercentage)
+    VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'generating', 0)
   `);
   
-  stmt.run(id, trackName, prompt, JSON.stringify(genres), durationRequested);
+  stmt.run(id, userId, trackName, prompt, JSON.stringify(genres), durationRequested);
   
   // Create empty master file
-  const masterPath = path.join(audioDir, `${id}_master.wav`);
+  const { finalDir } = getUserStoragePaths(userId, id);
+  const masterPath = path.join(finalDir, `audio.wav`);
   fs.writeFileSync(masterPath, Buffer.alloc(0));
   
   res.json({ id });
 });
 
 // Get Tracks
-app.get('/api/tracks', (req, res) => {
-  const tracks = db.prepare('SELECT * FROM tracks ORDER BY createdAt DESC').all();
-  res.json(tracks.map((t: any) => ({ ...t, genres: JSON.parse(t.genres) })));
+app.get('/api/tracks', requireAuth, (req: any, res) => {
+  const tracks = db.prepare('SELECT * FROM tracks WHERE userId = ? ORDER BY createdAt DESC').all(req.user.id);
+  res.json(tracks.map((t: any) => ({ ...t, genres: JSON.parse(t.genres || '[]') })));
 });
 
 // Get Track
-app.get('/api/tracks/:id', (req, res) => {
-  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id) as any;
+app.get('/api/tracks/:id', requireAuth, (req: any, res) => {
+  const track = db.prepare('SELECT * FROM tracks WHERE id = ? AND userId = ?').get(req.params.id, req.user.id) as any;
   if (track) {
-    res.json({ ...track, genres: JSON.parse(track.genres) });
+    res.json({ ...track, genres: JSON.parse(track.genres || '[]') });
   } else {
     res.status(404).json({ error: 'Not found' });
   }
 });
 
 // Process Segment
-app.post('/api/tracks/:id/segment', async (req, res) => {
+app.post('/api/tracks/:id/segment', requireAuth, async (req: any, res) => {
   const { id } = req.params;
+  const userId = req.user.id;
   const { base64Audio, currentSegment, durationGenerated, progressPercentage } = req.body;
   
-  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(id) as any;
+  const track = db.prepare('SELECT * FROM tracks WHERE id = ? AND userId = ?').get(id, userId) as any;
   if (!track) return res.status(404).json({ error: 'Not found' });
   
-  const trackTempDir = path.join(tempDir, id);
-  if (!fs.existsSync(trackTempDir)) fs.mkdirSync(trackTempDir, { recursive: true });
-  
-  const masterWavPath = path.join(audioDir, `${id}_master.wav`);
+  const { segmentsDir, finalDir } = getUserStoragePaths(userId, id);
+  const masterWavPath = path.join(finalDir, `audio.wav`);
   
   try {
     const segmentBuffer = Buffer.from(base64Audio, 'base64');
-    const segmentPath = path.join(trackTempDir, `segment_${currentSegment}.wav`);
+    const segmentPath = path.join(segmentsDir, `${currentSegment}.wav`);
     fs.writeFileSync(segmentPath, segmentBuffer);
     
     // Progressive Master File Stitching
@@ -121,7 +187,7 @@ app.post('/api/tracks/:id/segment', async (req, res) => {
       fs.copyFileSync(segmentPath, masterWavPath);
     } else {
       // Append with crossfade using ffmpeg
-      const tempMaster = path.join(trackTempDir, `temp_master_${currentSegment}.wav`);
+      const tempMaster = path.join(segmentsDir, `temp_master_${currentSegment}.wav`);
       await new Promise((resolve, reject) => {
         ffmpeg()
           .input(masterWavPath)
@@ -142,7 +208,7 @@ app.post('/api/tracks/:id/segment', async (req, res) => {
       UPDATE tracks 
       SET durationGenerated = ?, segmentsGenerated = ?, progressPercentage = ?, audioMasterUrl = ?
       WHERE id = ?
-    `).run(durationGenerated, currentSegment + 1, progressPercentage, `/audio/${id}_master.wav`, id);
+    `).run(durationGenerated, currentSegment + 1, progressPercentage, `/audio/${userId}/${id}/audio.wav`, id);
     
     res.json({ success: true });
   } catch (error) {
@@ -153,19 +219,20 @@ app.post('/api/tracks/:id/segment', async (req, res) => {
 });
 
 // Finalize Track
-app.post('/api/tracks/:id/finalize', async (req, res) => {
+app.post('/api/tracks/:id/finalize', requireAuth, async (req: any, res) => {
   const { id } = req.params;
-  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(id) as any;
+  const userId = req.user.id;
+  const track = db.prepare('SELECT * FROM tracks WHERE id = ? AND userId = ?').get(id, userId) as any;
   if (!track) return res.status(404).json({ error: 'Not found' });
   
-  const trackTempDir = path.join(tempDir, id);
-  const masterWavPath = path.join(audioDir, `${id}_master.wav`);
-  const masterMp3Path = path.join(audioDir, `${id}_master.mp3`);
+  const { segmentsDir, finalDir } = getUserStoragePaths(userId, id);
+  const masterWavPath = path.join(finalDir, `audio.wav`);
+  const masterMp3Path = path.join(finalDir, `audio.mp3`);
   const durationRequested = track.durationRequested;
   
   try {
     // Final Trim & Post Processing
-    const finalMasterWav = path.join(trackTempDir, 'final_master.wav');
+    const finalMasterWav = path.join(segmentsDir, 'final_master.wav');
     await new Promise((resolve, reject) => {
       ffmpeg(masterWavPath)
         .setDuration(durationRequested)
@@ -196,7 +263,7 @@ app.post('/api/tracks/:id/finalize', async (req, res) => {
       UPDATE tracks 
       SET status = 'completed', progressPercentage = 100, audioMasterUrl = ?, videoUrl = ?
       WHERE id = ?
-    `).run(`/audio/${id}_master.mp3`, track.videoUrl || null, id);
+    `).run(`/audio/${userId}/${id}/audio.mp3`, track.videoUrl || null, id);
     
     res.json({ success: true });
   } catch (error) {
