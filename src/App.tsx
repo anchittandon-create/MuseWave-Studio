@@ -1,21 +1,23 @@
-import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Home, Music, LayoutDashboard, Settings, Library, Menu, X } from 'lucide-react';
-import HomePage from './pages/HomePage';
-import CreateMusicPage from './pages/CreateMusicPage';
-import DashboardPage from './pages/DashboardPage';
-import { PlayerProvider } from './context/PlayerContext';
-import PlayerView from './components/PlayerView';
+import { useState } from "react";
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
+import { Home, Music, LayoutDashboard, Library, Settings, Menu, X } from "lucide-react";
+
+import HomePage from "./pages/HomePage";
+import CreateMusicPage from "./pages/CreateMusicPage";
+import DashboardPage from "./pages/DashboardPage";
+
+import { PlayerProvider } from "./context/PlayerContext";
+import PlayerView from "./components/PlayerView";
 
 function Sidebar() {
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
-  
+
   const navItems = [
-    { path: '/', icon: <Home size={20} />, label: 'Home' },
-    { path: '/create', icon: <Music size={20} />, label: 'Create Music' },
-    { path: '/dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-    { path: '/library', icon: <Library size={20} />, label: 'Library' },
+    { path: "/", icon: <Home size={20} />, label: "Home" },
+    { path: "/create", icon: <Music size={20} />, label: "Create Music" },
+    { path: "/dashboard", icon: <LayoutDashboard size={20} />, label: "Dashboard" },
+    { path: "/library", icon: <Library size={20} />, label: "Library" },
   ];
 
   const closeMenu = () => setIsOpen(false);
