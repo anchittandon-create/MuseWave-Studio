@@ -21,8 +21,9 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }) as any);
 const storageDir = path.join(process.cwd(), "storage");
 const audioDir = path.join(storageDir, "audio");
 const tempDir = path.join(storageDir, "tempSegments");
+const videoDir = path.join(storageDir, "video");
 
-[storageDir, audioDir, tempDir].forEach((dir) => {
+[storageDir, audioDir, tempDir, videoDir].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -72,6 +73,45 @@ app.get("/audio/:file", (req, res) => {
 });
 
 
+
+/* ---------------- VIDEO STREAM ---------------- */
+
+app.get("/video/:file", (req, res) => {
+  const filePath = path.join(videoDir, req.params.file);
+
+  if (!fs.existsSync(filePath)) {
+    res.status(404).end();
+    return;
+  }
+
+  const stat = fs.statSync(filePath);
+  const range = req.headers.range;
+
+  if (!range) {
+    res.writeHead(200, {
+      "Content-Length": stat.size,
+      "Content-Type": "video/mp4",
+    });
+
+    fs.createReadStream(filePath).pipe(res);
+    return;
+  }
+
+  const parts = range.replace(/bytes=/, "").split("-");
+  const start = parseInt(parts[0]);
+  const end = parts[1] ? parseInt(parts[1]) : stat.size - 1;
+
+  const stream = fs.createReadStream(filePath, { start, end });
+
+  res.writeHead(206, {
+    "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+    "Accept-Ranges": "bytes",
+    "Content-Length": end - start + 1,
+    "Content-Type": "video/mp4",
+  });
+
+  stream.pipe(res);
+});
 
 /* ---------------- CREATE TRACK ---------------- */
 
@@ -209,6 +249,31 @@ app.post("/api/tracks/:id/finalize", async (req, res) => {
 });
 
 
+
+/* ---------------- UPLOAD VIDEO ---------------- */
+
+app.post("/api/tracks/:id/video", async (req, res) => {
+  const { id } = req.params;
+  const { base64Video } = req.body;
+
+  const track = db.prepare("SELECT * FROM tracks WHERE id=?").get(id) as any;
+  if (!track) {
+    res.status(404).json({ error: "Track not found" });
+    return;
+  }
+
+  try {
+    const videoPath = path.join(videoDir, `${id}.mp4`);
+    const buffer = Buffer.from(base64Video, "base64");
+    fs.writeFileSync(videoPath, buffer);
+
+    db.prepare(`UPDATE tracks SET videoUrl=? WHERE id=?`).run(`/video/${id}.mp4`, id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "video upload failed" });
+  }
+});
 
 /* ---------------- SERVER START ---------------- */
 

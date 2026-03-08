@@ -65,7 +65,11 @@ export default function CreateMusicPage() {
           trackName: singleTrackState.trackName, 
           prompt: singleTrackState.prompt,
           genres: singleTrackState.genres,
-          durationRequested: singleTrackState.duration
+          durationRequested: singleTrackState.duration,
+          lyrics: singleTrackState.lyrics,
+          generateVideo: singleTrackState.generateVideo,
+          videoDescription: singleTrackState.videoDescription,
+          videoStyle: singleTrackState.videoStyle
         });
       } else {
         for (const track of albumState.tracks) {
@@ -87,25 +91,42 @@ export default function CreateMusicPage() {
             trackName: fullTrackName, 
             prompt: effectivePrompt,
             genres: track.genres,
-            durationRequested: track.duration
+            durationRequested: track.duration,
+            lyrics: track.lyrics,
+            generateVideo: track.generateVideo,
+            videoDescription: track.videoDescription,
+            videoStyle: track.videoStyle
           });
         }
       }
       
+      // Check for paid API key required for Veo if any track requires video
+      const requiresVideo = trackIds.some(t => t.generateVideo);
+      if (requiresVideo && (window as any).aistudio && !(await (window as any).aistudio.hasSelectedApiKey())) {
+        await (window as any).aistudio.openSelectKey();
+      }
+
       navigate('/dashboard');
 
       // Start generation loop in background
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      let ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       for (const track of trackIds) {
         let durationGenerated = 0;
         const segmentsNeeded = Math.ceil(track.durationRequested / 30);
 
         for (let currentSegment = 0; currentSegment < segmentsNeeded; currentSegment++) {
-          const segmentPrompt = `Generate segment ${currentSegment + 1} of ${segmentsNeeded} for track ${track.trackName}. Style: ${track.genres.join(', ')}. Prompt: ${track.prompt}. Maintain tempo, key, rhythm continuity.`;
+          const lyricsChunks = track.lyrics ? track.lyrics.split('\n').filter((l: string) => l.trim().length > 0) : [];
+          const lyricsForSegment = lyricsChunks.length > 0 
+            ? lyricsChunks.slice(currentSegment * 2, (currentSegment + 1) * 2).join('\n')
+            : null;
+
+          const segmentPrompt = lyricsForSegment 
+            ? `Sing the following lyrics with a ${track.genres.join(', ')} vibe: ${lyricsForSegment}` 
+            : `Hum a ${track.genres.join(', ')} melody for track ${track.trackName}.`;
           
           const response = await ai.models.generateContent({
-            model: "gemini-2.0-flash-exp",
+            model: "gemini-2.5-flash-preview-tts",
             contents: [{ parts: [{ text: segmentPrompt }] }],
             config: {
               responseModalities: ["AUDIO"],
@@ -134,10 +155,58 @@ export default function CreateMusicPage() {
         }
 
         await fetch(`/api/tracks/${track.id}/finalize`, { method: 'POST' });
+
+        // Start video generation after audio is complete
+        if (track.generateVideo) {
+          try {
+            let operation = await ai.models.generateVideos({
+              model: 'veo-3.1-fast-generate-preview',
+              prompt: track.videoDescription || `A music video for a song titled ${track.trackName}, style: ${track.videoStyle}`,
+              config: {
+                numberOfVideos: 1,
+                resolution: '720p',
+                aspectRatio: '16:9'
+              }
+            });
+
+            while (!operation.done) {
+              await new Promise(resolve => setTimeout(resolve, 10000));
+              operation = await ai.operations.getVideosOperation({operation: operation});
+            }
+
+            const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+            if (downloadLink) {
+              const videoRes = await fetch(downloadLink, {
+                method: 'GET',
+                headers: {
+                  'x-goog-api-key': process.env.GEMINI_API_KEY as string,
+                },
+              });
+              const videoBlob = await videoRes.blob();
+              const base64Video = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(videoBlob);
+              });
+              
+              await fetch(`/api/tracks/${track.id}/video`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base64Video })
+              });
+            }
+          } catch (err) {
+            console.error("Video generation failed:", err);
+          }
+        }
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      if (err?.status === 429 || err?.message?.includes("429")) {
+        alert("Rate limit exceeded. Please try again later.");
+      }
       setIsGenerating(false);
     }
   };

@@ -23,7 +23,7 @@ Context: ${JSON.stringify(context)}
 Return a JSON array of 5 strings.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -33,8 +33,11 @@ Return a JSON array of 5 strings.`;
       
       const parsed = JSON.parse(response.text || "[]");
       setSuggestions(parsed);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Suggestion error:", e);
+      if (e?.status === 429 || e?.message?.includes("429")) {
+        alert("Rate limit exceeded. Please try again later.");
+      }
     } finally {
       setLoading(false);
     }
